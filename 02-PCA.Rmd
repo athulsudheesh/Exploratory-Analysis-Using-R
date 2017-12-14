@@ -1,0 +1,430 @@
+# (PART) One-Table Analysis {-}
+
+# Principal Component Analysis
+
+*Principal Component Analysis (PCA)* is one of the most popular as well as the oldest multivariate statisitcs technique. It is commonly used for extracting the most important information from the data table and compressing the size of the dataset by keeping only this important information. This extracted infromation is expressed as a set of orthogonal variables called *principal components*. The first principal component is the line that maximizes the inertia of the cloud of the data points and subsequent components are defined as orthogonal to previous components that maximizes the remaining inertia. In this new representation, observations are represented as *factor scores* and variables as *loadings*. PCA works the best when the dataset is quantitative in nature[@PrincipalComponentAnalysis].
+
+Suppose the data table to be analyzed is $X$ and have the shape $I$ (Observations) $\times$ $J$ (Variables), then $X$ has the following singular value decomposition [SVD]: $$ X=P \Delta Q^T $$ where $\mathbf{P}$ is the $I \times L$ matrix of left singular vectors, $\mathbf{Q}$ is the $J \times L$ matrix of right singular vectors, and $\Delta$ is the diagonal matrix of singular values. 
+
+## Finding the components 
+
+In PCA, the components are obtained by the singular value decomposition of the given data table $X$. 
+The factor score are computed as $$ \mathbf{F} = \mathbf{P} \mathbf{\Delta}$$ and the loadings $\mathbf{Q}$ are the coefficients of the linear combinations used to compute these factor scores. $$ \mathbf{F} = \mathbf{P} \mathbf{\Delta} = \mathbf{XQ}$$
+
+The $\mathbf{Q}$ can also be used to project new observations onto the components, called supplementary projections. The factor scores for supplementary observations are compted as $$ \mathbf{f}_{sup}^T = \mathbf{x}_{sup}^T \mathbf{Q}$$.
+
+```{r include=FALSE}
+# Clean Start
+rm(list = ls()) 
+graphics.off() 
+# Loading Dataset
+WorldHealth <- read.csv("Data/WorldHealth.csv", row.names = 1)
+
+# Cleaning Data 
+names(WorldHealth) <- c("Fires", "Drownings", "Poisonings", "Falls",
+                        "T.Chole_F", "T.Chole_M",
+                        "BP_F", "BP_M",
+                        "BMI_F","BMI_M",
+                        "GenGovExp", "TotalExp_GDP", 
+                        "PerCapitaExp_XchangeRate","PerCapita_PPP",
+                        "IMM_MCV", "IMM_DTP3")
+
+# Creating WorldHealth_Risk sub-table
+WorldHealth_Risk <- WorldHealth[,c(5:10)]
+designMatrix <- read.csv("Data/design.csv")
+
+# A function for plotting multiple plots 
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+```
+
+
+```{r warning=FALSE, message=FALSE, include=FALSE}
+# Design matrix
+
+designMatrix <- read.csv("Data/design.csv")
+# Loading required libraries 
+library(InPosition) 
+library(ggplot2)
+library(ggrepel)
+
+# Calling epPCA.inference.battery() function to do PCA
+
+res_PCA<- epPCA.inference.battery(WorldHealth_Risk,
+                        scale = "SS1",
+                        center = TRUE,
+                        graphs = FALSE)
+```
+
+```{r eval=FALSE, tidy=TRUE, echo=FALSE}
+# Loading required libraries 
+library(InPosition) 
+
+# Calling epPCA.inference.battery() function to do PCA
+res_PCA<- epPCA.inference.battery(WorldHealth_Risk,
+                        scale = "SS1",
+                        center = TRUE,
+                        graphs = FALSE)
+```
+
+```{r plotScree, include=FALSE}
+
+# Create a function to plot the scree
+# ev: the eigen values to plot. no default
+# max.ev the max eigen value
+#        needed because ExPosition does not return all ev
+#        but only the requested one. but return all tau
+#        so if max.ev is specified, it is used to recompute
+#        all eigenvalues
+# p.ep: the probabilities associated to the ev
+# alpha: threshold for significance. Default = .05
+# col.ns  = color for ns ev. Default is Green
+# col.sig = color for significant ev. Default is Violet
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  p <- ggplot(ev, aes(x = c(1:6), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', breaks = c(1,2,3,4,5,6))  +
+    geom_line() + 
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance")) +
+    geom_point(col=ifelse(p.ev<alpha, 'blue', 'indianred3'), size=2) +theme_get()+
+    geom_hline(aes(yintercept=1.2), linetype=2, col="red") 
+   
+} # end of function PlotScree
+
+```
+
+## Interpreting PCA {-}
+
+Let's understand how to interpret the results of PCA using `WorldHealth_Risk` data as an example. 
+
+## Inertia Explained by a Component 
+
+The given dataset had six variables and from Figure \@ref(fig:PCAScree), we can see that PCA has generated six components. Figure \@ref(fig:PCAScree) is called a scree plot and it helps us to understand how many principal components are there and how much variance each of them explain. The percentage of inertia is computed as $$ \tau = \frac{\lambda_i}{\sum_i \lambda_i}100$$
+where $\lambda_i$ is the eigenvalue of the $i^{th}$ component.
+
+```{r PCAScree, out.width="60%", fig.align="center", fig.cap="Scree Plot for Inference PCA", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE}
+PlotScree(as.data.frame(res_PCA$Fixed.Data$ExPosition.Data$eigs), 
+          p.ev = res_PCA$Inference.Data$components$p.vals)
+```
+
+In our example the first two components explain most of the infomration, around 84% and by applying elbow rule only the first two components are important. We have also used inference analysis with our model to compute the quality of the model. The blue dots in the scree represent significant components and red dots represent insignificant ones.
+
+```{r PCAHeatmap,out.width="50%", fig.align="center", fig.cap="Heatmap for Inference PCA", fig.pos='H', fig.width=9, fig.height=7.5, echo=FALSE, message=FALSE, include=FALSE }
+ggheat=function(m, rescaling='none', 
+                clustering='none', 
+                labCol=T, labRow=T, 
+                border=FALSE, 
+heatscale= c(low='gray',high='green'))
+{
+  ## the function can be be viewed as a two step process
+  ## 1. using the rehape package and other funcs the data is clustered, scaled, and reshaped
+  ## using simple options or by a user supplied function
+  ## 2. with the now resahped data the plot, the chosen labels and plot style are built
+ 
+  require(reshape)
+  require(ggplot2)
+ 
+  ## you can either scale by row or column not both! 
+  ## if you wish to scale by both or use a differen scale method then simply supply a scale
+  ## function instead NB scale is a base funct
+ 
+  if(is.function(rescaling))
+  { 
+    m=rescaling(m)
+  } 
+  else 
+  {
+    if(rescaling=='column') 
+      m=scale(m, center=T)
+    if(rescaling=='row') 
+      m=t(scale(t(m),center=T))
+  }
+ 
+  ## I have supplied the default cluster and euclidean distance- and chose to cluster after scaling
+  ## if you want a different distance/cluster method-- or to cluster and then scale
+  ## then you can supply a custom function 
+ 
+  if(is.function(clustering)) 
+  {
+    m=clustering(m)
+  }else
+  {
+  if(clustering=='row')
+    m=m[hclust(dist(m))$order, ]
+  if(clustering=='column')  
+    m=m[,hclust(dist(t(m)))$order]
+  if(clustering=='both')
+    m=m[hclust(dist(m))$order ,hclust(dist(t(m)))$order]
+  }
+	## this is just reshaping into a ggplot format matrix and making a ggplot layer
+ 
+  rows=dim(m)[1]
+  cols=dim(m)[2]
+  melt.m=cbind(rowInd=rep(1:rows, times=cols), colInd=rep(1:cols, each=rows) ,melt(m))
+	g=ggplot(data=melt.m)
+ 
+  ## add the heat tiles with or without a white border for clarity
+ 
+  if(border==TRUE)
+    g2=g+geom_rect(aes(xmin=colInd-1,xmax=colInd,ymin=rowInd-1,ymax=rowInd, fill=value),colour='white')
+  if(border==FALSE)
+    g2=g+geom_rect(aes(xmin=colInd-1,xmax=colInd,ymin=rowInd-1,ymax=rowInd, fill=value))
+ 
+  ## add axis labels either supplied or from the colnames rownames of the matrix
+ 
+  if(labCol==T) 
+    g2=g2+scale_x_continuous(breaks=(1:cols)-0.5, labels=colnames(m))
+  if(labCol==F) 
+    g2=g2+scale_x_continuous(breaks=(1:cols)-0.5, labels=rep('',cols))
+ 
+  if(labRow==T) 
+    g2=g2+scale_y_continuous(breaks=(1:rows)-0.5, labels=rownames(m))	
+	if(labRow==F) 
+    g2=g2+scale_y_continuous(breaks=(1:rows)-0.5, labels=rep('',rows))	
+ 
+  ## get rid of grey panel background and gridlines
+ 
+  
+  ## finally add the fill colour ramp of your choice (default is blue to red)-- and return
+  return(g2+scale_fill_continuous(""))
+ 
+}
+X= res_PCA$Fixed.Data$ExPosition.Data$X 
+ggheat(t(X)%*%X)
+```
+
+## Contribution of an Observation to a Component 
+
+The importance of an observation for a component can be obtained by the ratio of the squared factor score of this observation by the eigenvalue associated with that component. This ratio is called the contribution of the observation to the component. $$ ctr_{i,l} = \frac{f_{i,l}^2}{\lambda_l}$$
+The contribution of all observations to first component is shown in figure \@ref(fig:PCAContrib1)
+
+```{r PCAContrib1, echo=FALSE, fig.height=8, fig.width=16, message=FALSE, fig.cap="Contribution of observations to first component", fig.pos="H"}
+require(factoextra)
+# fviz_contrib() is a function from the package factoextra for plotting contribution bar plots of Observations and Variables to each component 
+fviz_contrib(res_PCA$Fixed.Data, 
+             axes = 1, 
+             choice = "ind", 
+             title="") + 
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## Factor Scores 
+
+Factor scores are the observations in the new representation space. Figure \@ref(fig:PCAFMap) shows the factor map for PCA of `World_Health Risk`. The oservations were also color-coded by their geographic region for better understanding of the data.
+
+```{r PCAFMap,  out.width="70%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="PCA World Health Characteristics. Factor scores of the observations plotted on the first two components", echo=FALSE}
+require(tibble)
+
+# Converting table into data frame for passing it to ggplot
+FactorScore <- as_data_frame(res_PCA$Fixed.Data$ExPosition.Data$fi[,c(1,2)])
+FactorScore$labels <- labels(res_PCA$Fixed.Data$ExPosition.Data$fi[,1])
+
+# Functions to plot Factor Scores 
+p <- ggplot()      # Plots the base
+p +
+  
+  # geom_point () plots the data points
+  geom_point(aes(x=FactorScore[,1],y=FactorScore[,2], 
+                 color=designMatrix$Region), 
+             position = "dodge")  +
+  
+  # scale_x_continuous() scales the plotting constraints of x axis
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                    round(res_PCA$Fixed.Data$ExPosition.Data$t[1],3), "%",", p=",    
+                    res_PCA$Inference.Data$components$p.vals[1])) + 
+  scale_color_discrete(name= "Regions")+
+  
+  # scale_y_continuous() scales the plotting constraints of y axis
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                     round(res_PCA$Fixed.Data$ExPosition.Data$t[2],3), "%", ",p=",
+                     res_PCA$Inference.Data$components$p.vals[2] ), limits =
+                       c(res_PCA$Fixed.Data$Plotting.Data$constraints$miny,
+                         0.3)) + 
+  
+  # geom_hline() prints a horizontal line at the specified y intercept
+  geom_hline(yintercept = 0)+
+  
+  # geom_vline() prints a vertical line at the specified y intercept
+  geom_vline(xintercept = 0)+
+  
+  # theme() is used for tweaking the final appearance of the plot 
+   theme(legend.position = "bottom")
+```
+
+From figure \@ref(fig:PCAFMap) we can see that component 1 is seperating Africa and Asia from America and Europe, while component 2 is seperating Africa and Europe from Asia and America. To find the variables that account for these differences, we examine the loadings of the variables on the first two components(figure \@ref(fig:CoCPCA)). 
+
+## Contribution of Variables to Components 
+
+Examining the contribution of variables to the components helps us to understand the variables explained by each component. Figure \@ref(fig:PCAContrib2) shows the contribution of variables to the first two components in our example.
+
+```{r PCAContrib2, fig.height=2, fig.width=6, echo=FALSE, message=FALSE, fig.cap="Contribution of variables to first two components", fig.pos="H"}
+C1<- fviz_contrib(res_PCA$Fixed.Data, 
+                  axis=1, 
+                  choice = "var", 
+                  title="Component 1")+ 
+  theme(plot.title = element_text(size = rel(1)))
+
+D1<- fviz_contrib(res_PCA$Fixed.Data, 
+                  axes=2, 
+                  choice = "var", 
+                  title="Component 2")+ 
+  theme(plot.title = element_text(size = rel(1)))
+
+# multiplot() is a user defined function for combining more than one plot into one image
+
+multiplot(C1,D1, cols = 2)
+```
+
+From figure (fig \@ref(fig:PCAContrib2)), we can see that component 1 explains most of BMI measure and Total Cholesterol measure whereas component 2 explains most of Blood Pressure measures
+
+## Loadings: Correlation of a Component and a Variable 
+
+The correlation between a component and a variable estimates the information they share. In the PCA framework, this correlation is called loadings.
+
+The sum of squared coefficients of correlation between a variable and all the components is equal to one and hence by the property of a circle, if the data can be perfectly explained by the first two components then the loadings will be positioned on a circle, which is called the circle of correlations. When there are more than two components, the variables are positioned inside the circle of correlation. The closer a variable is to the circle of correlations, the better we can construct this variable from the first two components. 
+
+The circle of correlation for PCA on `WorldHealth_Risk` is shown in figure \@ref(fig:CoCPCA)
+
+```{r CoCPCA, fig.align="center", fig.cap="Correlation (and circle of correlations) of the variables with component 1 and 2", fig.asp=1, out.width="40%", fig.pos="H", fig.height=7, fig.width=7, echo=FALSE}
+# Function for plotting the circle 
+circle <- function(center = c(0, 0), npoints = 100) {
+    r = 1
+    tt = seq(0, 2 * pi, length = npoints)
+    xx = center[1] + r * cos(tt)
+    yy = center[1] + r * sin(tt)
+    return(data.frame(x = xx, y = yy))
+}
+
+# Passing the parameters to circle() function for plotting circle 
+corcir = circle(c(0, 0), npoints = 100)
+
+# Computing the correlation between variables 
+correlations <- as.data.frame(cor(WorldHealth_Risk,res_PCA$Fixed.Data$ExPosition.Data$fi))
+
+# Parameters to draws arrows from center to points (variables)
+arrows = data.frame(x1 = c(0, 0, 0, 0, 0, 0), 
+                    y1 = c(0, 0, 0, 0, 0, 0), 
+                    x2 = correlations$V1, 
+                    y2 = correlations$V2)
+colorforgender <- c("indianred2","blue","indianred2","blue","indianred2","blue")
+
+ggplot() + 
+  
+  # geom_path() plots the circle based on the parameters passed as data 
+  geom_path(data = corcir, aes(x = x, y = y), colour = "black") + 
+  
+  # geom_segment() draws the arrows in the ggplot space 
+  
+  # geom_text_repel() displays the variable names without text overlaps
+  geom_text_repel(data = correlations, 
+                  aes(x = V1, y = V2, 
+          label = rownames(res_PCA$Fixed.Data$ExPosition.Data$fj)),
+          size=5, colour = colorforgender) + 
+  
+  # geom_hline() prints a horizontal line at the specified y intercept
+  geom_hline(yintercept = 0, colour = "gray65") + 
+  
+  # geom_vline() prints a horizontal line at the specified x intercept
+  geom_vline(xintercept = 0, colour = "gray65") + 
+  xlim(-1.1, 1.1) + ylim(-1.1, 1.1) + 
+  
+  # labs() define the labels for x axis and y axis 
+  labs(x = "Component 1", y = "Component 2") + 
+  
+  # geom_point() displays the points 
+  geom_point(aes(x=correlations$V1, 
+                 y= correlations$V2), 
+             colour = colorforgender)+ 
+  theme_minimal()
+```
+
+## Bootstrap Ratios 
+
+Bootstrap ratios tell us the significance of the variables in our model. From figure \@ref(fig:PCABootratios), we can see that BP_F was significant for both the components. The bars with orchid color are the ones that are significant for component 1 alone and the bars with green are the ones that are significant for component 2 alone. The bars with gray color indicate insignificant variables.  
+
+```{r PCABootratios, echo=FALSE, warning=FALSE, fig.align="center", fig.cap="Bootstrap Ratios for Component 1 and 2", out.width="80%", fig.pos="H", fig.height=4, fig.width=9, message=FALSE}
+# Boot Plots 
+require(ggpubr)
+FactBoot <- as.data.frame(res_PCA$Inference.Data$fj.boots$tests$boot.ratios)
+FactBoot$labels <- row.names(res_PCA$Fixed.Data$ExPosition.Data$fj)
+FactbootColor <- c("firebrick3", "gray", 
+                   "orchid4", "orchid4", 
+                   "orchid4", "orchid4")
+
+# B1 is the bootstrap ratios of component 1
+B1<- ggbarplot(FactBoot, x= "labels", y="V1", 
+          sort.val = "asc", 
+          fill = FactbootColor,
+          color = "white",
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Component 1",
+          ylab = "Boot Ratios", xlab = "Variables", rotate=T) + 
+  geom_hline(yintercept = 2, linetype=2, color="brown1") +  
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+FactbootColor <- c("gray", "gray", 
+                   "gray", "gray", 
+                   "palegreen3", "firebrick3")
+
+#B2 is the bootstrap ratios of component 2
+B2<- ggbarplot(FactBoot, x= "labels", y="V2", 
+          sort.val = "asc", 
+          fill = FactbootColor,
+          color = "white",
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Component 2",
+          ylab = "Boot Ratios", xlab = "Variables",
+          rotate=T) + 
+  geom_hline(yintercept = 2, linetype=2, color="brown1") +  
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+multiplot(B1,B2,cols = 2)
+```
+
+

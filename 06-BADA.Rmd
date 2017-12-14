@@ -1,0 +1,373 @@
+# Barycenter Discriminant Analysis
+
+Barycenter Discriminant Analysis is a robust version of Discriminant Analysis that is used like discriminant analysis - when multiple measurements describe a set of observations in which each observation belongs to one category from a set of priori defined categories. The goal of BADA is to combine the measurements to create new variables that best seperate the categories. These discriminant variables are also used to assign the original observations or new observations to the a-priori defined categories[@BADA]. 
+
+The first step of BADA is to compute the barycenter of each of the N categories describing the rows. The $N$ by $J$ matrix of barycenters is computed as: $$\mathbf{R}= diag\{\mathbf{ Y^TM1\}}^{-1}\mathbf{Y^T MX}$$ where $Y$ is the design matrix for the categories describing the rows of $X$
+
+The matrix $R$ is then analyzed using a GPCA under the constrints provided by the matrices $B$ and $W$. $$\mathbf{R=P \Delta Q^T}$$ with $\mathbf{P^T BP = Q^T WQ = I}$. The $N$ by $L$ matrix of factor scores for the categories is obtained as: $$\mathbf{F=P \Delta = RWQ}$$
+
+The loadings describe the variables of the barycentric data matrix and are used to identify the variables important for the separation between the groups. 
+
+For this analysis we use the `World Health` dataset and the heatmap of designmatrix * data is shown in figure \@ref(fig:BADAHeat)
+
+```{r include=FALSE}
+# Clean Start
+rm(list = ls()) 
+graphics.off() 
+
+library(TInPosition)
+require(ggplot2)
+
+# Loading Dataset
+WorldHealth <- read.csv("Data/WorldHealth.csv", row.names = 1)
+
+# Cleaning Data 
+names(WorldHealth) <- c("Fires", "Drownings", "Poisonings", "Falls",
+                        "T.Chole_F", "T.Chole_M",
+                        "BP_F", "BP_M",
+                        "BMI_F","BMI_M",
+                        "GenGovExp", "TotalExp_GDP", 
+                        "PerCapitaExp_XchangeRate","PerCapita_PPP",
+                        "IMM_MCV", "IMM_DTP3")
+
+# Creating WorldHealth_Risk sub-table
+WorldHealth_Risk <- WorldHealth[,c(5:10)]
+designMatrix <- read.csv("Data/design_new.csv")
+
+WorldHealth_Spending <- WorldHealth[,c(11:14)]
+
+
+WorldHealth_Immunization <- WorldHealth[,c(15,16)]
+
+# A function for plotting multiple plots 
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r include=FALSE}
+#  tepBADA.inference.battery() is a function from TInPosition package for doing BADA
+
+resBADA <- tepBADA.inference.battery(WorldHealth_Risk, 
+                                     scale = 'SS1',
+                                     DESIGN = designMatrix$Region, 
+                                     make_design_nominal = T, 
+                                     center = T, 
+                                     test.iters = 100, graphs = F)
+```
+
+```{r BADAHeat, fig.width=6, fig.height=6, out.width="50%", fig.align="center", fig.cap="BADA Heatmap", fig.pos="H", echo=FALSE, message=FALSE, warning=FALSE}
+# RColorBrewer selects color palette 
+
+require(RColorBrewer)
+heatmap(resBADA$Fixed.Data$TExPosition.Data$X, 
+        Rowv = NA, 
+        Colv = NA, 
+        col= colorRampPalette(brewer.pal(5, "Blues"))(256), 
+        margins = c(10, 10))
+```
+
+```{r plotScreeBADA, include=FALSE}
+
+# Create a function to plot the scree
+# ev: the eigen values to plot. no default
+# max.ev the max eigen value
+#        needed because ExPosition does not return all ev
+#        but only the requested one. but return all tau
+#        so if max.ev is specified, it is used to recompute
+#        all eigenvalues
+# p.ep: the probabilities associated to the ev
+# alpha: threshold for significance. Default = .05
+# col.ns  = color for ns ev. Default is Green
+# col.sig = color for significant ev. Default is Violet
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  p <- ggplot(ev, aes(x = c(1:5), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', breaks = c(1,2,3,4,5))  +
+    geom_line() + 
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance")) +
+    geom_point(col=ifelse(p.ev<alpha, 'blue', 'indianred3'), size=2) +theme_get()
+   
+} # end of function PlotScree
+
+```
+
+## Eigenvalues/Variance 
+
+The Scree plot for BADA is shown in figure \@ref(fig:BADAScree). From the figure we can see that BADA generated five components and out of them only two of them are important. On inference analysis none of them were found to be significant. 
+
+```{r BADAScree, out.width="60%", fig.align="center", fig.cap="Scree Plot for BADA", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE }
+PlotScree(as.data.frame(resBADA$Fixed.Data$TExPosition.Data$eigs), p.ev = resBADA$Inference.Data$components$p.vals)
+```
+
+## Factor scores
+
+IN BADA we can plot two factor map for our observations - one for individuals and other for groups (based on their mean). The factor map for groups is shown in figure \@ref(fig:BADAgroupmap) 
+
+```{r BADAgroupmap, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="BADA Factor Scores (Group)", echo=FALSE, fig.height=5, fig.width=8}
+require(ggrepel)
+FactorScore <- as.data.frame(resBADA$Fixed.Data$TExPosition.Data$fi[,c(1,2)])
+FactorScore$labels <- labels(resBADA$Fixed.Data$TExPosition.Data$fi[,2])
+
+p <- ggplot()
+
+p + 
+  # Plotting the points 
+  geom_point(aes(x=FactorScore$V1,
+                   y=FactorScore$V2)) +
+  
+  # Drawing confidence ellipse 
+  stat_ellipse()+
+  
+  # Printing labels 
+  geom_text_repel(aes(x=FactorScore$V1,
+                      y=FactorScore$V2, 
+                      label = FactorScore$labels))+
+  
+  # Scaling axis 
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resBADA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resBADA$Inference.Data$components$p.vals[1]), 
+                     limits = c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx) ) +
+  
+  scale_color_discrete(name= "Regions")+
+  
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resBADA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resBADA$Inference.Data$components$p.vals[2] ), 
+                     limits = c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy))+
+  
+  # Drawing axis lines 
+  geom_line(aes(x=c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0)))+
+  
+  geom_line(aes(x=c(0,0), 
+                y=c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy)))
+```
+
+From tha above plot we can see that Africa and Europe is very much seperated from all other groups.  To find the variables that account for these differences, we examine the loadings of the variables(figure \@ref(fig:BADAVarMap)).
+
+Factor map of individuals with tolerance intervals is shown in figure \@ref(fig:BADAIndMap). 
+
+```{r BADAIndMap, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="BADA Factor Scores (Individuals) with tolerance intervals", echo=FALSE, fig.height=5.8, fig.width=8}
+FactorScore <- as.data.frame(resBADA$Fixed.Data$TExPosition.Data$fii[,c(1,2)])
+FactorScore$labels <- labels(resBADA$Fixed.Data$TExPosition.Data$fii[,2])
+
+p <- ggplot()
+
+p +
+  # Plotting the points 
+  geom_point(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, 
+                   color = designMatrix$Region)) +
+  
+  # Drawing the confidence ellipse 
+  stat_ellipse(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, 
+                   color = designMatrix$Region), 
+               linetype = 6, type = "norm")+
+  
+  # Scaling the axis based on the plotting constraints 
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resBADA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resBADA$Inference.Data$components$p.vals[1]) ) +
+  scale_color_discrete(name= "Regions")+
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resBADA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resBADA$Inference.Data$components$p.vals[2] ))+
+  
+  # Drawing the axis 
+  geom_line(aes(x=c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0)))+
+  geom_line(aes(x=c(0,0),
+                y=c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy)))+
+  
+  # theme() is used for tweaking the final appearance of the plot 
+   theme(legend.position = "bottom")
+```
+
+## Loadings
+
+Figure \@ref(fig:BADAVarMap) shows the loadings of the BADA on World health risk. We can see that the loadings plot of BADA looks very much similar to that of the PCA Loadings plot. 
+
+```{r BADAVarMap, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="BADA Loadings", echo=FALSE, fig.height=5, fig.width=8}
+Loadings <- as.data.frame(resBADA$Fixed.Data$TExPosition.Data$fj[,c(1,2)])
+Loadings$labels <- labels(resBADA$Fixed.Data$TExPosition.Data$fj[,2])
+p <- ggplot()
+
+p + 
+  # Plotting the points 
+  geom_point(aes(x=Loadings$V1,
+                   y=Loadings$V2)) +
+  
+  # Printing the labels 
+  geom_text_repel(aes(x=Loadings$V1,
+                      y=Loadings$V2, 
+                      label = Loadings$labels)) +
+  
+  # Scaling the axis
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resBADA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resBADA$Inference.Data$components$p.vals[1]), 
+                     limits = c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx) ) +
+  
+  scale_color_discrete(name= "Regions")+
+  
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resBADA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resBADA$Inference.Data$components$p.vals[2] ), 
+                     limits = c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy))+
+  
+  # Drawing the axis lines 
+  geom_line(aes(x=c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0)))+
+  geom_line(aes(x=c(0,0), 
+                y=c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy)))
+```
+
+## Confusion Matrix
+
+A confusion matrix helps us to understand the quality of the model in making predictions. The confusion matrix (Fixed Model) for BADA is shown in figure \@ref(fig:BADAConf).
+
+```{r BADAConf, echo=FALSE, fig.cap="Confusion Matrix (Fixed Model)", fig.pos="H", fig.align="center"}
+require(ggpubr)
+ggtexttable(as.data.frame(resBADA$Fixed.Data$TExPosition.Data$assign$confusion))
+```
+
+## Reliability and Stability of the Analysis
+
+Figure \@ref(fig:BADAConfGrp) shows the factor map of BADA for groups with 95% bootstrap confidence intervals.
+
+```{r BADAConfGrp, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="BADA Factor Scores (Group) with confidence intervals", echo=FALSE, fig.height=5.8, fig.width=8}
+Fi <- as.data.frame(resBADA$Fixed.Data$TExPosition.Data$fi[,c(1,2)])
+Fi$labels <- labels(resBADA$Fixed.Data$TExPosition.Data$fi[,2])
+# Converting the variables into dataframe 
+FactorScore <- as.data.frame(resBADA$Fixed.Data$TExPosition.Data$fii[,c(1,2)])
+FactorScore$labels <- labels(resBADA$Fixed.Data$TExPosition.Data$fii[,2])
+p <- ggplot()
+
+p + 
+  # Plotting the points 
+  geom_point(aes(x=Fi$V1,
+                   y=Fi$V2, color=unique(designMatrix$Region))) +
+  
+  # Drawing confidence ellipse 
+  stat_conf_ellipse(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, 
+                   color = designMatrix$Region), 
+               linetype = 6, inherit.aes = F, geom = "path")+
+  
+  # Scalling axis 
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resBADA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resBADA$Inference.Data$components$p.vals[1]),
+                     limits = c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx) ) +
+  scale_color_discrete(name= "Regions")+
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resBADA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resBADA$Inference.Data$components$p.vals[2] ), 
+                     limits = c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy))+
+  
+  # Drawing axis lines 
+  geom_line(aes(x=c(resBADA$Fixed.Data$Plotting.Data$constraints$minx, resBADA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0)))+
+   geom_line(aes(x=c(0,0),
+                y=c(resBADA$Fixed.Data$Plotting.Data$constraints$miny, resBADA$Fixed.Data$Plotting.Data$constraints$maxy)))+
+  
+  # theme() is used for tweaking the final appearance of the plot 
+   theme(legend.position = "bottom")
+```
+
+### Bootstrap Ratios 
+
+```{r echo=FALSE, fig.width=6, fig.height=3, warning=FALSE, message=FALSE, fig.align="center", fig.pos="H", fig.cap="BADA Bootstrap Ratios"}
+
+
+bootRatios <- as.data.frame(resBADA$Inference.Data$boot.data$fj.boot.data$tests$boot.ratios)
+bootRatios$labels <- row.names(resBADA$Fixed.Data$TExPosition.Data$fj)
+# Bootstrap for component 1
+B1<- ggbarplot(bootRatios, 
+          x= "labels", y="V1", 
+          sort.val = "asc", 
+          palette = "jco", 
+          fill = "dodgerblue3", color = "white", 
+          ggtheme = theme_minimal(), 
+          title = "Component 1", 
+          ylab = "Boot Ratios", xlab = "Variables", rotate=T)+ 
+  
+  geom_hline(yintercept = 2, linetype=2, color="brown1") +  
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+
+bootColors2 <- c("dodgerblue3","dodgerblue3",
+                "dodgerblue3","dodgerblue3",
+                "gray", "dodgerblue3")
+
+# Bootstrap for component 2
+B2<- ggbarplot(bootRatios, x= "labels", y="V2",
+          sort.val = "asc", palette = "jco", 
+          fill = bootColors2, color = "white", 
+          ggtheme = theme_minimal(), 
+          title = "Component 2", 
+          ylab = "Boot Ratios", xlab = "", 
+          rotate=T)+
+  geom_hline(yintercept = 2, linetype=2, color="brown1") + 
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+multiplot(B1,B2, cols = 2)
+```
+
+From the above figure we can see that all the variables were significant for component one whereas only BMI_Male was insignificant for component two.
+
+### Confusion Matrix (Random Model)
+
+A jackknife procedure was used inorder to evaluate the generalization capacity of the analysis. This gave the following random effect confusion matrix: 
+
+```{r BADAConfRand, echo=FALSE, fig.cap="Confusion Matrix (Random Model)", fig.pos="H", fig.align="center", fig.height=5, fig.width=12}
+ggtexttable(as.data.frame(resBADA$Inference.Data$loo.data$loo.confuse))
+```
+
+
+`r if (knitr:::is_html_output()) '# References {-}'`

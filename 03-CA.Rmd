@@ -1,0 +1,277 @@
+
+```{r include=FALSE}
+# A Clean start 
+rm(list = ls()) 
+graphics.off()
+
+# Loading the dataset 
+
+Orange_rating<- read.csv("Data/44JudgesDescribe10OrangeJuices-CA.csv", 
+                         row.names = 1)
+
+# Loading required libraries 
+require(tibble)
+library(InPosition)
+library(ggplot2)
+library(ggrepel)
+library(factoextra)
+
+# A function for plotting multiple plots 
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+```
+
+# Correspondence Analysis
+
+Correspondence Analysis is a generalized principal component analysis tailored for the analysis of qualitative data. The goal of correspondence analysis is to transform a data table into two sets of factor scores: One for rows and one for columns. The factor scores give the best representation of the similarity structure of the rows and the columns of the table. In CA, the factor scores of the rows and columns have the same variance, and therefore both rows and columns can be represented in one single map called the biplot. The technique is also known by the names of *optimal scaling*, *dual-scaling* and *reciprocal averaging*[@CorrespondanceAnalysis].
+
+## Computations 
+
+```{r include=FALSE}
+# epCA.inference.battery() is a function from InPosition for running Correspondence Analysis
+
+#resCA stores the results for symmetric plot and rescA.asym, results for asymmetric plot 
+resCA <- epCA.inference.battery(Orange_rating, graphs = F)
+rescA.asym  <- epCA.inference.battery(Orange_rating, graphs = F)
+```
+
+For this analysis we use the `Orange Juice Rating` dataset.
+
+The first step of the analysis is to transform the data matrix into a probability matrix (denoted $\mathbf{Z}$)[The row totals of $\mathbf{Z}$ is denotes as $\mathbf{r}$ and column totals of $\mathbf{Z}$ is denotes as $\mathbf{c}$]. The probability matrix obtained in the first step is double centered by substracting $\mathbf{r} \mathbf{c}^T$ from $\mathbf{Z}$.  The heatmap of this matrix is shown in figure \@ref(fig:CAHeat). The factor scores are obtained by the generalized signular value decomposition of this matrix. i.e $$(\mathbf{Z} - \mathbf{r} \mathbf{c}^T) = \mathbf{P \Delta Q^T}$$
+
+From the GSVD, the row and column factor scores are obtained as: 
+$$\mathbf{F=D_r^{-1}P \Delta}$$ and $$\mathbf{G=D_c^{-1}Q \Delta}$$ where $\mathbf{D_c} = diag\{\mathbf{c}\}$ and $\mathbf{D_r} = diag\{ \mathbf{r}\}$
+
+```{r CAHeat, fig.width=10, fig.height=5, out.width="50%", fig.align="center", fig.cap=" Heatmap of double centered probability matrix used for GSVD of Correspondence Analysis", fig.pos="H", echo=FALSE, message=FALSE, warning=FALSE}
+require(RColorBrewer)
+# RColorBrewer is for selecting color palette 
+
+heatmap(resCA$Fixed.Data$ExPosition.Data$X, 
+        Rowv = NA, 
+        Colv = NA, 
+        col= colorRampPalette(brewer.pal(5, "Blues"))(256))
+```
+
+
+## Eigenvalues/Variances 
+
+As in PCA, here also we examine the eigenvalues to determine the number of axis to be considered in our interpretation. The Scree Plot of CA for `Orange Juice Rating` is shown in figure \@ref(fig:CASCree)
+
+```{r plotScreeCA, include=FALSE}
+
+# Create a function to plot the scree
+# ev: the eigen values to plot. no default
+# max.ev the max eigen value
+#        needed because ExPosition does not return all ev
+#        but only the requested one. but return all tau
+#        so if max.ev is specified, it is used to recompute
+#        all eigenvalues
+# p.ep: the probabilities associated to the ev
+# alpha: threshold for significance. Default = .05
+# col.ns  = color for ns ev. Default is Green
+# col.sig = color for significant ev. Default is Violet
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  p <- ggplot(ev, aes(x = c(1:9), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', 
+                       breaks = c(1,2,3,4,5,6,7,8,9))  +
+    geom_line() + 
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance")) +
+    geom_point(col=ifelse(p.ev<alpha, 'blue', 'indianred3'), size=2) +theme_get()
+   
+} # end of function PlotScree
+
+```
+
+
+```{r CASCree, out.width="60%", fig.align="center", fig.cap="Scree Plot for Inference CA", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE }
+PlotScree(as_data_frame(resCA$Fixed.Data$ExPosition.Data$eigs), 
+          p.ev = resCA$Inference.Data$components$p.vals)
+```
+
+From the above figure, we can see that most of the variance is explained by the first three factors (almost 85%). On inference analysis these three dimensions were aslo found to be significant and hence we consider these three dimensions for our further analysis. 
+
+### Elements Important for a Factor 
+
+In CA, the rows and the columns of the table have similar role and hence we can use the same statistics to identify the rows and the columns important for a given dimension. To examine the importance of an element we look at its *contributions* which is the ratio of its squared factor scores to the eigenvalue of this factor. The contribution of columns to the first three components is shown in figure \@ref(fig:ContribCA123).
+
+```{r ContribCA123, fig.height=4, fig.width=15, echo=FALSE, fig.align="center", fig.pos="H", fig.cap="Contribution of Columns to Components 1,2 and 3"}
+# fviz_contrib() is a function from the package factoextra for plotiing contribution of observations and variables onto each component
+
+D1<- fviz_contrib(resCA$Fixed.Data, 
+                  axes = 1, 
+                  choice = "col", 
+                  title="Component 1")
+
+D2<- fviz_contrib(resCA$Fixed.Data, 
+                  axes = 2, 
+                  choice = "col", 
+                  title="Component 2")
+
+D3<- fviz_contrib(resCA$Fixed.Data, 
+                  axes = 3, 
+                  choice = "col", 
+                  title="Component 3")
+
+multiplot(D1,D2,D3, cols = 3) # An user-defined plotting function
+```
+
+From the above figure we can see that component 1 explain the variables about sweet, sour, artifical and bitter, component 2 explain the variables on dark.orange, cooked flavor and sweetness, over.ripe and mixed.fruit and component 3 explain the variables on pulpy, sparkling and dilute.
+
+## Interpreting Factor Map
+
+In a CA map when two row (respectively column) points are close to each other, this means that these points have similar profiles, and when two points have the same profile, they will be located exactly at the same place. In this plot the proximity between a row point and a column point cannot be interpreted. This map is called a symmetric plot. The symmetric plot of column elements is shown in figure \@ref(fig:CASymm)
+
+```{r CASymm, fig.align="center", fig.cap="CA Symmetric Plot", fig.pos='H', fig.width=15, fig.height=7, echo=FALSE}
+#fviz_ca_col() is a function from factoextra for plotting factor scores of variables
+
+#B1 stores the symmetric plot for component 1-2
+B1<- fviz_ca_col(resCA$Fixed.Data, 
+                 repel = T,
+                 title = "Components 1-2",
+                 axes = c(1,2)) 
+
+#B2 stores the symmetric plot for component 2-3
+B2 <- fviz_ca_col(resCA$Fixed.Data, 
+                  repel = T,
+                  title = "Components 2-3", 
+                  axes = c(2,3))
+
+multiplot(B1,B2, cols = 2)
+```
+
+By observing the above symmetric plot we can make the following conclusions:
+
+- Component 1 contrasts the sweetness factor (sweet and candy vs sour and bitter), make (artificial vs natural) and smell (fruity vs floral) of the juice.
+
+- Component 2 contrasts the colour (dark orange vs dark yellow), flavor (orange vs cooked)and taste (citrus vs honey) of the juice.
+
+- Component 3 accounts for the concentration (dilute vs concentrated) and sparkling (sparkling vs natural) of the juice.
+
+### Interpreting Row and Column Proximity \label{head31}
+
+The proximity of a row point and column point cannot be interpreted from a standard symmetric plot. To make it interpretable we normalize the column factor scores by the following formulae: $$\hat{G} = D_c^{-1} Q$$ 
+
+In tha asymmetric plot obtained with $\mathbf{F}$ and $\mathbf{\hat{G}}$, the distance from a row point to a column point reflects their association. An asymmetric biplot of our dataset is shown in figure \@ref(fig:CAASymm)
+
+```{r CAASymm, fig.align="center", fig.cap="CA Asymmetric Biplot", fig.pos='H', fig.width=12, fig.height=6, echo=FALSE}
+#fviz_ca_biplot() is a function from factorextra package for plotting biplot. A biplot is a plot where factor scores of both observations and variables are projected.
+
+fviz_ca_biplot(resCA$Fixed.Data, 
+               repel = T,
+               map ="rowprincipal", 
+               title = "Asymmetric Biplot - Components 1 & 2", 
+               geom = c("point", "text"), 
+               alpha.col="contrib")
+```
+
+From the above biplot the following conclusions can be made:
+
+- Minute Made, Goldenpan and Biley are sweet and artifical and have fruity smell whereas Malee, Tipco and UFC are sour and natural and have floral smell.
+
+- Malee, Tipco and some variations of UFC have dark yellow colour whereas Unif and some variations of UCF have dark orange colour. 
+
+## Bootstrap Ratios 
+
+From figure \@ref(fig:CABootstrap) we can see that none of the column elements are significant for the first two components and only one element is significant for component 3. So the sample we have for our analysis is not a good estimate of the global population.
+
+```{r CABootstrap, fig.height=4, fig.width=8, fig.align="center", fig.pos="H", echo=FALSE, fig.cap="Bootstrap Ratios for Component 1,2 and 3", warning=FALSE, message=FALSE}
+FactBoot <- as.data.frame(resCA$Fixed.Data$ExPosition.Data$fj)
+FactBoot$labels <- row.names(resCA$Fixed.Data$ExPosition.Data$fj)
+library(ggpubr)
+#F1 stores the barplot for Bootstrap ratios of component 1
+F1<- ggbarplot(FactBoot, x= "labels", y="V1", 
+          sort.val = "asc", 
+          color = "white",
+          fill = "gray",
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Component 1",
+          ylab = "", xlab = "Variables", rotate=T) + 
+  geom_hline(yintercept = 2, 
+             linetype=2, 
+             color="brown1") +  
+  geom_hline(yintercept = -2, 
+             linetype=2, 
+             color="brown1")
+
+#F2 stores the barplot for Bootstrap ratios of component 2
+F2 <- ggbarplot(FactBoot, x= "labels", y="V2", 
+          sort.val = "asc", 
+          color = "white",
+          fill = "gray",
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Component 2",
+          ylab = "Boot Ratios", xlab = "", rotate=T) + 
+  geom_hline(yintercept = 2, 
+             linetype=2, 
+             color="brown1") +  
+  geom_hline(yintercept = -2, 
+             linetype=2, 
+             color="brown1")
+
+#F3 stores the barplot for Bootstrap ratios of component 3
+F3 <- ggbarplot(FactBoot, x= "labels", y="V3", 
+          sort.val = "asc", 
+          color = "white",
+          fill = c(rep("gray", 22), "dodgerblue3"),
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Component 3",
+          ylab = "", xlab = "", rotate=T) + 
+  geom_hline(yintercept = 2, 
+             linetype=2, 
+             color="brown1") +  
+  geom_hline(yintercept = -2, 
+             linetype=2, 
+             color="brown1")
+
+#An user defined plotting function for printing multiple plots
+multiplot(F1,F2,F3,cols = 3)
+```
+

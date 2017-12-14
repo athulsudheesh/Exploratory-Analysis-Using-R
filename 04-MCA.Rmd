@@ -1,0 +1,303 @@
+# Multiple Correspondence Analysis
+
+```{r include=FALSE}
+# Clean Start
+rm(list = ls()) 
+graphics.off() 
+# Loading Dataset
+WorldHealth <- read.csv("Data/WorldHealth.csv", row.names = 1)
+
+# Cleaning Data 
+names(WorldHealth) <- c("Fires", "Drownings", "Poisonings", "Falls",
+                        "T.Chole_F", "T.Chole_M",
+                        "BP_F", "BP_M",
+                        "BMI_F","BMI_M",
+                        "GenGovExp", "TotalExp_GDP", 
+                        "PerCapitaExp_XchangeRate","PerCapita_PPP",
+                        "IMM_MCV", "IMM_DTP3")
+
+# Creating WorldHealth_Risk sub-table
+WorldHealth_Risk <- WorldHealth[,c(5:10)]
+designMatrix <- read.csv("Data/design.csv")
+
+# A function for plotting multiple plots 
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+```
+
+*Multiple Correspondence Analysis* is an extention of correspondence analysis which allows one to analyze the pattern of relationships of several categorical dependent variables. It can also be seen as a generalization of principal component analysis when the variables to be analyzed are categorical instead of quantitative[@MCAnalysis].
+
+MCA can also accomodate quantitative variables by recording them as bins. For this analysis we will be using the `World Health Risk` data. Hence this is a quantitative data we convert it into a qualitaitve table by binning the variables based on the constrained explained in section \ref{head41}
+
+## Binning \label{head41}
+
+Histogram gives us the idea of how the data is distributed. It is also important to visualize the data as histogram to find the optimal number of bins we use to make the table a categorical one. The histogram and how binning is done to make our data a qualitative table is illustrated in figure \@ref(fig:HistBinning). The binning was done based on the standard charts for Total Cholesterol, Systolic BP and BMI scores.
+
+**Total Cholesterol:**
+
+- <5.2: ideal
+- 5.2 - 6.2: bordeline 
+- \>6.2: high
+
+**Blood Pressure:**
+
+- <100 - low BP
+- 100 - 130: ideal
+- 130 - 150: pre-BP
+- \>150: high BP
+
+**Body Mass Index**
+
+- <19: underweight
+- 19 - 25: healthy
+- 25 - 30: overweight
+- \>40: obese 
+
+```{r HistBinning, fig.width=7, fig.height=7, echo=FALSE, out.width="70%", fig.align="center", fig.cap="Histogram and Bins", echo=FALSE, warning=FALSE, message=FALSE, fig.pos="H"}
+# hist() is a histrogram plotting function from the R's base graphics system. 
+
+par(mfrow=c(3,2))
+# ------------------ T.Chole(F)------------------ 
+hist(WorldHealth_Risk[,1], breaks = 12,  # breaks is the number of bins it should have
+     main = "Cholesterol (F)",           # main takes in the title of the plot
+     xlab = "T.Chole (mmol.L)")          # xlab is for the x-axis label
+abline(v=5.2, col="red", lwd=2)          # abline draws a vertical line on the specified     
+                                                      # location(the value stored in v)
+
+# ------------------ T.Chole(M)------------------ 
+hist(WorldHealth_Risk[,2], breaks = 12, 
+     main = "Cholesterol (M)", 
+     xlab = "T.Chole (mmol.L)")
+abline(v=5.2, col="red", lwd=2)
+
+# -------------------- BP(F)--------------------
+hist(WorldHealth_Risk[,3], breaks = 12, 
+     main = "Blood Pressure(F)", 
+     xlab = "Avg. Systolic BP(mm.Hg)")
+abline(v=130, col="red", lwd=2)
+
+# -------------------- BP(M)--------------------
+hist(WorldHealth_Risk[,4], 
+     breaks = 12, main = "Blood Pressure(M)", 
+     xlab = "Avg. Systolic BP(mm.Hg)")
+abline(v=130, col="red", lwd=2)
+
+# ------------------- BMI(F)-------------------
+hist(WorldHealth_Risk[,5], breaks = 12,
+     main = "BMI(F)", 
+     xlab = "Score")
+abline(v=c(25,30), col="red", lwd=2)
+
+# ------------------- BMI(M)-------------------
+hist(WorldHealth_Risk[,6], breaks = 12, 
+     main = "BMI(M)", 
+     xlab = "Score")
+abline(v=c(25,30), col="red", lwd=2)
+```
+
+```{r include=FALSE}
+# ------------------ T.Chole(F)------------------ 
+T.Chole_F <- cut(WorldHealth_Risk[,1], breaks =c(0,5.2,6.2) ) # cut(x, breaks) is 
+# a base function that divides the range of x according to which interval  they fall
+
+# ------------------ T.Chole(M)------------------ 
+T.Chole_M <- cut(WorldHealth_Risk[,2], breaks =c(0,5.2,6.2) )
+
+# -------------------- BP(F)--------------------
+BP_F <- cut(WorldHealth_Risk[,3], breaks =c(100,130,150))
+
+# -------------------- BP(M)--------------------
+BP_M <- cut(WorldHealth_Risk[,4], breaks = c(100,130,150))
+
+# ------------------- BMI(F)-------------------
+BMI_F <- cut(WorldHealth_Risk[,5], breaks = c(19,25,30,40))
+
+# ------------------- BMI(M)-------------------
+BMI_M <- cut(WorldHealth_Risk[,6], breaks = c(19,25,30,40))
+
+# Putting them all together into a table
+
+WorldHealth_Risk_Categorical <- cbind(T.Chole_F,T.Chole_M, BP_F, BP_M, BMI_F, BMI_M)
+```
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+library(InPosition)
+# epMCA.inference.battery() is a function from InPosition package for doing MCA with inference analysis
+resMCA <- epMCA.inference.battery(WorldHealth_Risk_Categorical, 
+                                  make_design_nominal = T, 
+                                  graphs = F)
+```
+
+## Eigenvalues 
+
+MCA codes data by creating several binary columns for each variable with the constraint that one and only one of the columns get the value 1. As a consequence, the inertia (i.e. variance) of the solution space is artifically inflated and therefore the percentage of inertia explained by the first dimension is severly underestimated. This is corrected by the following formulae: $$\mathbf{\hat{\lambda_l} = ([\frac{K}{K-1})(\lambda_l - \frac{1}{K})]^2} $$ if $\mathbf{\lambda_l > \frac{1}{K}}$ and  $$\mathbf{\hat{\lambda_l} = 0}$$ if $\mathbf{\lambda_l \le \frac{1}{K}}$, where $\mathbf{K}$ is the number of variables.
+
+The scree plot with the corrected eigen values is shown in figure \@ref(fig:MCAScree)
+
+```{r plotScreeMCA, include=FALSE}
+
+# Create a function to plot the scree
+# ev: the eigen values to plot. no default
+# max.ev the max eigen value
+#        needed because ExPosition does not return all ev
+#        but only the requested one. but return all tau
+#        so if max.ev is specified, it is used to recompute
+#        all eigenvalues
+# p.ep: the probabilities associated to the ev
+# alpha: threshold for significance. Default = .05
+# col.ns  = color for ns ev. Default is Green
+# col.sig = color for significant ev. Default is Violet
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  p <- ggplot(ev, aes(x = c(1:3), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', breaks = c(1,2,3))  +
+    geom_line() + 
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance")) +
+    geom_point(col=ifelse(p.ev<alpha, 'blue', 'indianred3'), size=2) +theme_get()
+   
+} # end of function PlotScree
+
+```
+
+```{r MCAScree, out.width="60%", fig.align="center", fig.cap="Scree Plot for Inference MCA", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE }
+PlotScree(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$eigs), p.ev = resMCA$Inference.Data$components$p.vals)
+```
+
+From the above plot we can see that there are 3 components and most of the variance is explained by the first component itself(almost 90%).
+
+## Interpreting Factor Map
+
+As in CA, in MCA also proximities are meaningful only between points from the same set(i.e. rows with rows, columns with columns). When two row points are close to each other they tend to reflect the same level of nominal variables. The factor map of observations is shown in figure \@ref(fig:MCAIndMap)
+
+```{r MCAIndMap, echo=FALSE, fig.height=5, fig.width=8, out.width="75%", fig.align="center", warning=FALSE, message=FALSE, fig.pos="H", fig.cap="Factor Map of Observations"}
+
+# fviz_mca_ind() is a function from factoextra for plotting factor scores for observations 
+fviz_mca_ind(resMCA$Fixed.Data, 
+             habillage = designMatrix$Region, 
+             repel = TRUE, 
+             geom = "point", 
+             title="" ) + 
+  theme(legend.position = "bottom") 
+```
+
+From the above map we can say that component 1 is seperating African countiries from European countires and component 2 is pulling Micronesian and Polynesian countires. To find the variables that account for these differences, we examine the factor map for variables.
+
+For the proximity between variables we need to distinguish two cases. First, the proximity between levels of different nominal variables mean that these levels tend to appear together in the observations. Second, the proximity between levels mean that the groups of observations associated with these two levels are themselves similar. The factor map of variables is shown in figure \@ref(fig:MCAVarMap)
+
+```{r MCAVarMap, echo=FALSE, fig.height=5, fig.width=8, out.width="75%", fig.align="center", warning=FALSE, message=FALSE, fig.pos="H", fig.cap="Factor Map of Variables"}
+require(factoextra)
+require(PTCA4CATA)
+designforVar <- resMCA$Fixed.Data$ExPosition.Data$fj
+row.names(designforVar) <- c("T.Chole_F", "T.Chole_F",
+                             "T.Chole_M" ,"T.Chole_M",
+                             "BP_F", "BP_F" ,
+                             "BP_M", "BP_M", 
+                             "BMI_F", "BMI_F" , "BMI_F",
+                             "BMI_M" ,"BMI_M", "BMI_M")
+
+grp <- c(row.names(designforVar))
+
+fviz_mca_var(resMCA$Fixed.Data, 
+             mean.point=TRUE, 
+             repel = TRUE, 
+             habillage =grp, 
+             label= "all", 
+             palette= "Set4", 
+             title="" ) + 
+  theme(legend.position = "bottom") + 
+
+# ggConvexHull is a function from PTCTA4CATA for drawing peeled convex hull for a set of points described by two variables
+  ggConvexHull(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$fj)[c(1,2),], 
+             col.line = "lightskyblue", 
+             line.size = 0.5) + 
+  
+  ggConvexHull(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$fj)[c(3,4),], 
+               col.line = "maroon1", 
+               line.size = 0.5)+ 
+  
+  ggConvexHull(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$fj)[c(5,6),], 
+               col.line = "mediumseagreen", 
+               line.size = 0.5)+ 
+  
+  ggConvexHull(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$fj)[c(7,8),], 
+               col.line = "mediumaquamarine", line.size = 0.5)+ 
+ 
+  ggConvexHull(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$fj)[c(9,10,11),], 
+               col.line = "indianred", 
+               col.hull = "indianred", 
+               line.size = 0.0, alpha.hull = 0.1)+ 
+  
+  ggConvexHull(as.data.frame(resMCA$Fixed.Data$ExPosition.Data$fj)[c(12,13,14),], 
+               col.line = "orange3", 
+               col.hull = "orange3", 
+               line.size = 0.0, alpha.hull = 0.1)
+```
+
+From the above map we can see that Total Cholesterol and BMI for both male and female have similar trends whereas BP has opposing trends for male and female. The huge variance for BMI along dimension 2 is due to the observations driving these factos. We can also infer that Total Cholesterol has more variance than BMI along dimension 1.
+
+### Interpreting Row and Column Proximity 
+
+Using the theory explained in section \ref{head31}, an asymmetric biplot is generated as shown in figure \@ref(fig:MCABiplot)
+
+
+From figure \@ref(fig:MCABiplot) we can see that African and Asian countries have a healtheir population (Ideal Cholesterol levles and BMI scores) whereas American and European countries have a slightly unhealthy population (borderline cholesterol and overweight). Also males from Asian and African countries have normal BP whereas those from American and European countires have pre-BP levles. However the trend was reversed for females. The population of Polynesian, Micronesian and Melanesian countires were found to be obese.  
+
+
+```{r  MCABiplot, echo=FALSE, fig.height=8.75, fig.width=14, warning=FALSE, message=FALSE, fig.align="center", fig.cap="MCA Asymmetric Biplot", fig.pos="H"}
+fviz_mca_biplot(resMCA$Fixed.Data, 
+                habillage = designMatrix$Region, 
+                repel = TRUE, label = "var",
+                map = "colprincipal", 
+                geom = c("point", "text") , 
+                title="" ) + theme(legend.position = "bottom")
+```
+
+
+
+
+
+

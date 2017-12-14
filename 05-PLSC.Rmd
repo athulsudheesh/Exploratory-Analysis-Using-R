@@ -1,0 +1,640 @@
+# (PART) Two Table Analysis{-}
+
+# Partial Least Square Methods 
+
+Partial Least Square methods also sometimes called projection to latent structures relate the information present in two data tables that collect measurements on the same set of observations. PLS method proceed by deriving latent variables which are linear combinations of the variable of the data table. When the goal is to find the shared information between two tables, the approach is equivalent to correlation problem and the technique is called Partial Least Square Regression. In this case there are two sets of latent variables and these latent variables are required to have maximal covariance. The original variables are described by their saliences. By analogy with principal component analysis, the latent variables are akin to factor scores and the saliences are akin to loadings[@PLS].
+
+## Computation 
+
+The main analytical tool for PLSC is the singular value decomposition of the matrix $\mathbf{R}$, where $\mathbf{R = Z_Y^T Z_X}$.$Z_X$ and $Z_Y$ are the rescaled versions of $X$ and $Y$. The SVD of $R$ decomposes it into three matrices:$$\mathbf{R= U \Delta V^T}$$
+
+In PLSC vocabulary, the singular vectors are called saliences: so $U$ is the matrix of $Y$-saliences and $V$is the matrix of $X$-saliences. The latent variables are obtained by projecting the original matrices onto their respective saliences. Specifically, we obtain the latent variables for $X$ as: $$\mathbf{L_X = Z_X V}$$ and for $Y$ as: $$\mathbf{L_Y = Z_Y U}$$
+
+## Interpreting PLSC 
+
+For this analysis we compare three tables from the `World Health` dataset. From the correlation plot of `World Health` dataset (Figure \@ref(fig:WorldCorPlot)), we see that there is a strong correlation between `World Health Risk` and `Spendings` as well as between `World Health Risk` and `Immunization`. So we compare these two subtables in this analysis.
+
+```{r include=FALSE}
+# Clean Start
+rm(list = ls()) 
+graphics.off() 
+# Loading Dataset
+WorldHealth <- read.csv("Data/WorldHealth.csv", row.names = 1)
+
+# Cleaning Data 
+names(WorldHealth) <- c("Fires", "Drownings", "Poisonings", "Falls",
+                        "T.Chole_F", "T.Chole_M",
+                        "BP_F", "BP_M",
+                        "BMI_F","BMI_M",
+                        "GenGovExp", "TotalExp_GDP", 
+                        "PerCapitaExp_XchangeRate","PerCapita_PPP",
+                        "IMM_MCV", "IMM_DTP3")
+
+# Creating WorldHealth_Risk sub-table
+WorldHealth_Risk <- WorldHealth[,c(5:10)]
+designMatrix <- read.csv("Data/design.csv")
+
+WorldHealth_Spending <- WorldHealth[,c(11:14)]
+
+
+WorldHealth_Immunization <- WorldHealth[,c(15,16)]
+```
+
+A heatmap of $X^TY$ ($X$ is the matrix of `Risk Factor` data and $Y$, the matrix of `Spendings` data) is shown in figure \@ref(fig:PLS1Heat)
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, include=FALSE}
+library(TInPosition)
+require(ggplot2)
+
+#tepPLS() is a function from TInPosition for doing PLS analysis 
+# resPLS1 has the PLSC results from the analysis of WorldHealth_Risk and WorldHealth_Spending
+# resPLS2 has the PLSC results from the analysis of WorldHealth_Risk and WorldHealth_Immunization
+
+resPLS1 <- tepPLS(WorldHealth_Risk, WorldHealth_Spending, 
+                  center1 = T, center2 = T, 
+                  scale1 = "SS1", scale2 = "SS1", # scale 1 and 2 scales the first and second data table respectively
+                  graphs = F)
+
+resPLS2 <- tepPLS(WorldHealth_Risk, WorldHealth_Immunization, 
+                  center1 = T, center2 = T, 
+                  scale1 = "SS1", scale2 = "SS1", 
+                  graphs = F)
+```
+
+```{r PLS1Heat, fig.width=8, fig.height=8, out.width="50%" ,fig.align="center", fig.cap=" Heatmap of PLS", fig.pos="H", echo=FALSE, message=FALSE, warning=FALSE}
+# RColorBrewer is for selecting color palette 
+require(RColorBrewer)
+heatmap(resPLS1$TExPosition.Data$X, 
+        Rowv = NA, Colv = NA,
+        col= colorRampPalette(brewer.pal(5, "Blues"))(256), 
+        margins = c(21,8))
+```
+
+
+```{r plotScreePLS, echo=FALSE, include=FALSE}
+
+
+# Create a function to plot the scree
+# ev: the eigen values to plot. no default
+# max.ev the max eigen value
+#        needed because ExPosition does not return all ev
+#        but only the requested one. but return all tau
+#        so if max.ev is specified, it is used to recompute
+#        all eigenvalues
+# p.ep: the probabilities associated to the ev
+# alpha: threshold for significance. Default = .05
+# col.ns  = color for ns ev. Default is Green
+# col.sig = color for significant ev. Default is Violet
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  p <- ggplot(ev, aes(x = c(1:4), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', breaks = c(1,2,3,4))  +
+    geom_line() + 
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance")) +
+    geom_point(col=ifelse(p.ev<alpha, 'blue', 'indianred3'), size=2) +theme_get()+
+    geom_hline(aes(yintercept=1.2), linetype=2, col="red") 
+   
+} 
+
+```
+
+## Eigenvalues/Variances 
+
+Scree plot of PLSC analysis between `World Health Risk` and `World Health Spending` is shown in figure \@ref(fig:PLSScree1).
+```{r include=FALSE}
+compS <- function(DATA1,
+                  DATA2,
+                  center1 = TRUE,
+                  center2 = TRUE,
+                  scale1 =  'ss1' , #   'ss1' ,
+                  scale2 =  'ss1' 
+                   ){
+   X <- DATA1
+   Y <- DATA2
+   if (center1 & center2 
+            & (scale1 == 'ss1') 
+            & (scale2 == 'ss1') ){
+                  S = cor(X,Y) } else {
+              Xc <- ExPosition::expo.scale(X, center = center1,
+                                               scale = scale1)
+              Yc <- ExPosition::expo.scale(Y, center = center2,
+                                               scale = scale2)
+              S <- t(Xc) %*% Yc
+                  }
+
+       return(S)               
+} # end of function compS
+#--------------------------------------------------------------------
+#--------------------------------------------------------------------
+
+#--------------------------------------------------------------------
+#' Permutation for PLSC (as implemented
+#' in \code{TExPosition::tepPLS})
+#' 
+#' Permutation for PLSC (as implemented
+#' in \code{TExPosition::tepPLS}).
+#' Compute an omnibus permutation test  and
+#' specific test for the eigenvalues when
+#' performing a PLSC from 
+#' 2 matrices X and Y.
+#'  Several possible
+#' combinations of centering and normalizing
+#' are possible (see paramater \code{scale1, 
+#' scale2, center2, scale2}).
+#' Used for functions related to PLSC 
+#' inter-battery analysis / co-inertia...
+#' The different types of normalization are
+#' based on the \code{ExPosition::expo.scale} 
+#' function. Two different permutation schemes
+#' are currently available (see paramater
+#' \code{permType}).
+#' @param DATA1 an N*I matrix of quantitative data
+#' @param DATA2 an N*J matrix of quantitative data
+#' @param center1 when TRUE (default) \code{DATA1}
+#' will be centered
+#' @param center2 when TRUE (default) \code{DATA2}
+#' will be centered
+#' @param scale1 when TRUE (default) \code{DATA1}
+#' will be normalized. Depends upon \code{ExPosition}
+#' function \code{expo.scale} whose description is:
+#'boolean, text, or (numeric) vector. 
+#'If boolean or vector, 
+#'it works just as scale. 
+#'The following text options are available:
+#' 'z': z-score normalization,
+#' 'sd': standard deviation normalization, 
+#' 'rms': root mean square normalization,
+#'  'ss1': sum of squares
+#'  (of columns) equals 1 
+#'  (i.e., column vector of length of 1).
+#' @param scale2 when TRUE (default) \code{DATA2}
+#' will be normalized
+#'  (same options as for \code{scale1}).
+#' @param nIter (Default = 1000). Number of Iterations 
+#' (i.e. number of permuted samples computed).
+#' @permType what type of permutation is used
+#' if 'byMat' (default) only the labels of the observations
+#' are permutated, other option is 'byColumns' then
+#' all columns of each matrix are independently 
+#' permuted.
+#' @param compact if TRUE return
+#' (Default) only p-values for omnibus test
+#' @return a list with 
+#' \code{fixedInertia}: the CA-inertia of the data matrix;
+#' \code{fixedEigenvalues}: the CA-eigenvalues of
+#' the data matrix;
+#' \code{pOmnibus}: the probability associated
+#' to the inertia.
+#' If \code{compact} is \code{FALSE}, return also
+#' \code{permInertia}: 
+#' an \code{nIter} * 1 vector containing the 
+#' permutated inertia; 
+#' \code{pEigenvalues}: The probabilites 
+#' associated to each eigenvalue;
+#' If \code{compact} is is \code{FALSE}, return also
+#' \code{permEigenvalues}: an
+#' \code{nIter} * \code{L} matrix giving
+#' the permuted eigenvalues.  
+#' @author Herve Abdi
+#' @export
+
+perm4PLSC <- function(DATA1,
+                  DATA2,
+                  center1 = TRUE,
+                  center2 = TRUE,
+                  scale1 =  'ss1' , #   'ss1' ,
+                  scale2 =  'ss1',
+                  nIter = 1000,
+                  permType = 'byMat' , # 'byColumns
+                  compact = FALSE
+){
+  if (permType != 'byColumns') permType <- 'byMat'
+  DATA1 <- as.matrix(DATA1)
+  DATA2 <- as.matrix(DATA2)
+  X = DATA1
+  Y = DATA2
+  if (NCOL(X) > NCOL(Y)){
+      X = DATA2
+      Y = DATA1
+      }
+  
+  nN <- NROW(X)
+  nI <- NCOL(X)
+  nJ <- NCOL(Y)
+  if( !(nN == NROW(Y))){stop('DATA1 and DATA2 non-conformable')}
+  maxRank <- min(nI,nJ)
+  # Compute fixed SCP matrix for X & Y
+  Sfixed = compS(DATA1,
+            DATA2,
+            center1 = center1,
+            center2 = center2,
+            scale1 =  scale1, #   'ss1' ,
+            scale2 =  scale2)
+  fixedEigenvalues <- rep(0,maxRank)
+  fixedEV <- eigen(t(Sfixed) %*% (Sfixed), 
+                   symmetric = TRUE, 
+                   only.values = TRUE)$values
+  # Make sure that the length fit
+  if (length(fixedEV) > maxRank){
+    fixedEigenvalues <- fixedEV[1:maxRank] 
+  }
+  if (length(fixedEV) == maxRank){fixedEigenvalues <- fixedEV}
+  if (length(fixedEV) < maxRank){
+    fixedEigenvalues[1:length(fixedEV)] <- fixedEV 
+  }
+  fixedInertia <- sum(fixedEigenvalues)
+  # The random permutations below
+  # Initialize
+  permInertia     <- rep(NA,nIter)
+  permEigenvalues <- matrix(NA, nrow = nIter, ncol = maxRank)
+  #
+  # Use replicate
+  # first define the function
+
+  .truc <- function(X,Y,
+                    longueur = min(c(dim(X),NCOL(Y))),
+                    permType = permType){
+     valP   <- rep(0, longueur)
+     #resvp <- .eig4CA( apply(X,2,sample ))
+     if ( permType == 'byMat'){
+       Xrand <- X[sample(nN),]
+       Yrand <- Y
+     }
+     if ( permType == 'byColumns'){
+       Xrand <- apply(X,2,sample )
+       Yrand <- apply(Y,2,sample )
+     }
+     Srand <- compS(Xrand,Yrand)
+     resvp <-   eigen(t(Srand) %*% Srand, 
+                     symmetric = TRUE, 
+                     only.values = TRUE)$values
+    valP[1:length(resvp)] <- resvp
+    return(valP)
+          }
+  laLongueur <- maxRank + 1 # to fix rounding error for ev
+  permEigenvalues <- replicate(nIter, 
+                               .truc(X,Y,laLongueur,permType) )
+  permEigenvalues <- t(permEigenvalues[1:maxRank,])
+  # Done without a loop!
+  permInertia = rowSums(permEigenvalues)
+  #
+  pOmnibus = sum(permInertia > fixedInertia) / nIter
+  if (pOmnibus == 0) pOmnibus <- 1/nIter # no 0
+  pEigenvalues <- rowSums( t(permEigenvalues) > 
+                             (fixedEigenvalues)) / nIter
+  pEigenvalues[pEigenvalues == 0 ] <- 1/nIter
+  return.list <- structure(
+    list(fixedInertia = fixedInertia,
+         fixedEigenvalues = fixedEigenvalues,
+         pOmnibus = pOmnibus,
+         pEigenvalues = pEigenvalues
+    ), 
+    class = 'perm4PLSC')
+  if (!compact){
+    return.list$permInertia =  permInertia
+    return.list$permEigenvalues = permEigenvalues
+  }
+  return(return.list)
+} # End of function perm4PLSC  
+
+```
+
+
+```{r PLSScree1, out.width="60%", fig.align="center", fig.cap="Scree Plot for PLS", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE }
+permnew <- perm4PLSC(WorldHealth_Risk, WorldHealth_Spending)
+PlotScree(as.data.frame(permnew$fixedEigenvalues), p.ev = permnew$pEigenvalues)
+```
+
+The above scree plot reveals that there are four components and the first component explains more than 90% of the variance. 
+
+## Interpreting Latent variables 
+
+```{r  PLSLCplot1, echo=FALSE, fig.height=5, fig.width=8, out.width="75%", fig.align="center", warning=FALSE, message=FALSE, fig.pos="H", fig.cap="The X latent variable plot for PLSC between World Health Risk and Spendings"}
+LX1 <- as.data.frame(resPLS1$TExPosition.Data$lx)
+LY1 <- as.data.frame(resPLS1$TExPosition.Data$ly)
+
+p <- ggplot()
+p + geom_point(aes(x=LX1$V1, y=LY1$V1, 
+                   color = designMatrix$Region))+
+  
+  geom_line(aes(x=c(resPLS1$Plotting.Data$lv.constraints$minx,
+                    resPLS1$Plotting.Data$lv.constraints$maxx), 
+                y=c(0,0)))+
+  
+  geom_line(aes(x=c(0,0), 
+                y=c(resPLS1$Plotting.Data$lv.constraints$miny,
+                    resPLS1$Plotting.Data$lv.constraints$maxy))) +
+  
+  scale_x_continuous(name = "Risk Factors") +  
+  scale_y_continuous(name = "Spendings") + 
+  
+  ggtitle("Latent Variable X") + theme_minimal()+
+  
+  # theme() is used for tweaking the final appearance of the plot 
+  theme(legend.position = "bottom")+ 
+  scale_color_discrete(name= "Regions")
+```
+
+The above plot is a figure showing the latent variables of Risk Factors against Spendings for first component. Here we can see that PLSC was trying to maximize whatever covariance they were having. From the above plot we can conclude that there is some kind of linear trend for Asia and North America whereas variance of Europe is mostly explained by spendings and variance of Africa is explained by Risk Factors.  
+
+Now we do the analysis on the second set of tables - WorldHealth_Risk and WorldHealth_Immunization. The scree plot for the PLSC of these are shown in figure \@ref(fig:PLSCPlotScree2).
+
+```{r PLSCPlotScree2, out.width="60%", fig.align="center", fig.cap="Scree Plot for PLSC WorldHealth Risk and Worldhealth Immunization", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE }
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  # 
+
+  p <- ggplot(ev, aes(x = c(1:2), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', breaks = c(1,2)) + geom_point() +
+    ggtitle("Explained Variance per Dimension") + 
+    geom_line() + 
+    
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance"))
+} 
+
+PlotScree(as.data.frame(resPLS2$TExPosition.Data$eigs))
+```
+
+Here we can see that there's only two components and the first component alone explains all the variance.
+
+Figure \@ref(fig:PLSC2Lplot) shows the factor map of latent variables (X against Y) for the first component of Risk Factors vs Immunization anaysis. 
+
+```{r PLSC2Lplot, echo=FALSE, fig.height=5, fig.width=8, out.width="75%", fig.align="center", warning=FALSE, message=FALSE, fig.pos="H", fig.cap="Factor Map of Observations", echo=FALSE}
+LX2 <- as.data.frame(resPLS2$TExPosition.Data$lx)
+LY2 <- as.data.frame(resPLS2$TExPosition.Data$ly)
+
+p <- ggplot()
+p + geom_point(aes(x=LX2$V1, y=LY2$V1, 
+                   color = designMatrix$Region))+
+  
+  geom_line(aes(x=c(resPLS2$Plotting.Data$lv.constraints$minx,
+                    resPLS2$Plotting.Data$lv.constraints$maxx),
+                y=c(0,0)))+
+  
+  geom_line(aes(x=c(0,0), 
+                y=c(resPLS2$Plotting.Data$lv.constraints$miny,
+                    resPLS2$Plotting.Data$lv.constraints$maxy))) +
+  
+  scale_x_continuous(name = "LX1") + 
+  scale_y_continuous(name = "LY1") + 
+  
+  ggtitle("Risk Factors vs Immunization") + theme_minimal()+
+  # theme() is used for tweaking the final appearance of the plot 
+  theme(legend.position = "bottom")+ 
+  scale_color_discrete(name= "Regions")
+```
+Here we can see that there isn't any relationship between the tables.
+
+## Saliences
+
+Figure \@ref(fig:PLSCFact1) shows the saliances for Risk Factors. From the figure we can see that Component one explains most of the variance in blood pressure whereas component two explains the variance of BMI and Total Cholesterol.
+
+```{r PLSCFact1, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="Salience for Risk Factors", echo=FALSE, fig.height=5.8, fig.width=8}
+FactorScore <- as_data_frame(resPLS1$TExPosition.Data$fi[,c(1,2)])
+FactorScore$labels <- labels(resPLS1$TExPosition.Data$fi[,1])
+
+p <- ggplot()
+p + geom_point(aes(x=FactorScore[,1],y=FactorScore[,2])) +
+  
+  geom_text_repel(data = FactorScore, 
+                  mapping = aes(x=FactorScore[,1],y=FactorScore[,2]), 
+                  label = FactorScore$labels) +
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  
+  scale_x_continuous(name = paste("Component ", 1, " variance: ",
+                                  round(resPLS1$TExPosition.Data$t[1],3), 
+                                  "%", sep = ""), 
+            limits = c(resPLS1$Plotting.Data$constraints$minx,
+                       resPLS1$Plotting.Data$constraints$maxx)) + 
+  
+  scale_y_continuous(name=paste("Component ", 2, " variance: ", 
+                                round(resPLS1$TExPosition.Data$t[2],3),
+                                "%", sep = ""), 
+                     limits =c(resPLS1$Plotting.Data$constraints$miny,
+                               resPLS1$Plotting.Data$constraints$maxy ))
+```
+
+Figure \@ref(fig:PLSCFact2) shows the salience for Spendings. From the figure we can see that the general government expenditure and the total expenditure is almost orthogonal to the per capita expenditures.
+
+```{r PLSCFact2, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="Saliences for Spending", echo=FALSE, fig.height=5.8, fig.width=8}
+FactorScore <- as_data_frame(resPLS1$TExPosition.Data$fj[,c(1,2)])
+FactorScore$labels <- labels(resPLS1$TExPosition.Data$fj[,1])
+
+p <- ggplot()
+p + geom_point(aes(x=FactorScore[,1],y=FactorScore[,2])) +
+  geom_text_repel(data = FactorScore, 
+                  mapping = aes(x=FactorScore[,1],y=FactorScore[,2]), 
+                  label = FactorScore$labels) +
+
+  scale_x_continuous(name = paste("Component ", 1, " variance: ", 
+                                  round(resPLS1$TExPosition.Data$t[1],3),
+                                  "%", sep = ""), 
+            limits = c(resPLS1$Plotting.Data$constraints$minx,
+                       resPLS1$Plotting.Data$constraints$maxx)) + 
+  
+  scale_y_continuous(name=paste("Component ", 2, " variance: ", 
+                                round(resPLS1$TExPosition.Data$t[2],3),
+                                "%", sep = ""), 
+            limits =c(resPLS1$Plotting.Data$constraints$miny,
+                      resPLS1$Plotting.Data$constraints$maxy))  + 
+  
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)
+```
+
+## Bootstrap Ratios 
+
+```{r include=FALSE}
+Boot4PLSC <- function(DATA1, DATA2,
+                      center1 = TRUE,
+                      center2 = TRUE,
+                      scale1 = 'ss1',
+                      scale2 = 'ss1',
+                        Fi = NULL,
+                        Fj = NULL,
+                        nf2keep = 3,
+                        nIter = 1000,
+                        critical.value = 2,
+                        eig = FALSE, 
+                        # To be implemented later
+                        # has no effect currently
+                        alphaLevel = .05){
+  # NB Internal function here for coherence
+  .boot.ratio.test <- function(boot.cube,
+                               critical.value=2){
+    boot.cube.mean <- apply(boot.cube,c(1,2),mean)
+    boot.cube.mean_repeat <- array(boot.cube.mean,
+                                dim=c(dim(boot.cube)))
+    boot.cube.dev <- (boot.cube - boot.cube.mean_repeat)^2
+    s.boot<-(apply(boot.cube.dev,c(1,2),mean))^(1/2)
+    boot.ratios <- boot.cube.mean / s.boot
+    significant.boot.ratios <- (abs(boot.ratios) > critical.value)
+    rownames(boot.ratios) <- rownames(boot.cube)
+    rownames(significant.boot.ratios) <- rownames(boot.cube)
+    return(list(sig.boot.ratios=significant.boot.ratios,
+                boot.ratios=boot.ratios))
+  }
+  # 
+  # End of .boot.ratio.test
+  X <- ExPosition::expo.scale(DATA1, center = center1,
+                               scale = scale1)
+  Y <- ExPosition::expo.scale(DATA2, center = center2,
+                               scale = scale2)
+  nN = NROW(X)
+  if (nN != NROW(Y)){stop('input matrices not conformable')}
+  nI= NCOL(X)
+  nJ = NCOL(Y)
+  maxRank <- min(nI,nJ)
+  if (maxRank < nf2keep) nf2keep = maxRank
+  if  ( is.null(Fi) | is.null(Fj) ){
+  # compute Fi and Fj  
+    S <- t(X) %*% Y 
+    svd.S <- svd(S, nu = nf2keep, nv = nf2keep)
+    if (nf2keep > length(svd.S$d)) nf2keep = length(svd.S$d)
+    Lx <- X %*% svd.S$u
+    Ly <- Y %*% svd.S$v
+    Fi <- svd.S$u * matrix(svd.S$d,nI,nf2keep,byrow = TRUE)
+    Fj <- svd.S$v * matrix(svd.S$d,nJ,nf2keep,byrow = TRUE)
+  } else { # Compute lx and ly from Fi and Fj
+    nL = min(NCOL(Fi),NCOL(Fj))
+    if (nL < nf2keep) nf2keep = nL
+    Fi = Fi[,1:nf2keep]
+    Fj = Fj[,1:nf2keep]
+    delta.inv <- 1 / sqrt(colSums(Fi^2))
+    Lx <-  X %*% (Fi * matrix(delta.inv,nI,nf2keep,byrow = TRUE) ) 
+    Ly <-  Y %*% (Fj * matrix(delta.inv,nJ,nf2keep,byrow = TRUE) ) 
+  }
+  # Now we have Lx Ly Fi and Fj
+  #
+  # J-set
+  fj.boot    <- array(NA, dim = c(nJ,nf2keep,nIter)) 
+  # Name.
+  dimnames(fj.boot)[1] <- list(colnames(Y))
+  dimnames(fj.boot)[2] <- list(paste0("Dimension ",1: nf2keep))
+  dimnames(fj.boot)[3] <- list(paste0("Iteration ", 1:nIter))
+  # I-set
+  fi.boot    <- array(NA, dim = c(nI,nf2keep,nIter)) 
+  # Name.
+  dimnames(fi.boot)[1] <- list(colnames(X))
+  dimnames(fi.boot)[2] <- list(paste0("Dimension ",1: nf2keep))
+  dimnames(fi.boot)[3] <- list(paste0("Iteration ", 1:nIter))
+  for (ell in 1:nIter){# ell loop
+   boot.index <- sample(nN, replace = TRUE)
+   fi.boot[,,ell] <- t(X[boot.index,]) %*% Ly[boot.index,] 
+   fj.boot[,,ell] <- t(Y[boot.index,]) %*% Lx[boot.index,] 
+   ## Code Below taken from BOOTCA. To be used 
+   ## to implement the eig option later
+   # if (eig){
+   #   # Xboot <- X[BootIndex,]
+   #   # Check that there are no zero columns
+   #   Xboot <- Xboot[,colSums(Xboot) > 0]
+   #   eigenCA <- .eig4CA(Xboot) 
+   #   # Trick here for the rank of the eigenvalues
+   #   index <- min(maxrank,length(eigenCA))
+   #   eigenValues[ell,1:index] <- 
+   #     eigenCA[1:index ]
+   # }
+  }
+  # Boot-ratios
+  BR.j <- .boot.ratio.test(fj.boot,critical.value)
+  BR.i <- .boot.ratio.test(fi.boot,critical.value)
+  #
+  return.list <- structure(
+    list(
+      bootstrapBrick.i =     fi.boot,
+      bootRatios.i =  BR.i$boot.ratios,
+      bootRatiosSignificant.i =
+        BR.i$sig.boot.ratios,
+      bootstrapBrick.j =     fj.boot,
+      bootRatios.j =  BR.j$boot.ratios,
+      bootRatiosSignificant.j =
+        BR.j$sig.boot.ratios
+    ),
+    class = "bootBrick.ij4plsc")
+## Code Below taken from BOOTCA. To be used 
+## to implement the eig option later
+# if (eig){
+#   # eliminate empty eigenvalues
+#   eigenValues <- eigenValues[, colSums(eigenValues) > 0]
+#   return.list$eigenValues = eigenValues
+#   # Get the CI
+#   # order the eigenvalues to get the CIs
+#   sortedEigenValues <- apply(eigenValues,2,sort)
+#   index  =  round(nIter * (alphaLevel /2))
+#   if (index == 0) index <- 1
+#   eigenCI = sortedEigenValues[c(index,nIter-(index-1)),]
+#   return.list$eigenCI <- eigenCI
+# } # end if eigen
+  return(return.list)
+} # End of Function 
+```
+
+```{r PLSCBoot1,  fig.height=3, fig.width=6, echo=FALSE, message=FALSE, fig.cap="Bootstrap Ratios for Risk Factors",  out.width="75%", fig.align="center", fig.pos="H", warning=FALSE}
+Bootstrap<- Boot4PLSC(WorldHealth_Risk, WorldHealth_Spending)
+require(ggpubr)
+
+FactBoot1 <- as.data.frame(Bootstrap$bootRatios.i)
+FactBoot1$labels <- row.names(Bootstrap$bootRatios.i)
+Factboot1Color <- c("dodgerblue2", "dodgerblue2", 
+                   "dodgerblue2", "dodgerblue2", 
+                   "gray", "dodgerblue2")
+
+# B1 is the bootstrap ratios of component 1
+colnames(FactBoot1) <- c("v1","v2","v3", "labels")
+ggbarplot(FactBoot1,x="labels",y='v1', 
+          sort.val = "asc",
+          fill = Factboot1Color,
+          color = "white",
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Risk Factors",
+          ylab = "Boot Ratios", xlab = "Variables") + 
+  geom_hline(yintercept = 2, linetype=2, color="brown1") +  
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+FactBoot2 <- as.data.frame(Bootstrap$bootRatios.j)
+FactBoot2$labels <- row.names(Bootstrap$bootRatios.j)
+FactbootColor <- c("dodgerblue2", "dodgerblue2", 
+                   "dodgerblue2", "dodgerblue2")
+
+#B2 is the bootstrap ratios of component 2
+colnames(FactBoot2) <- c("v1","v2","v3", "labels")
+```
+
+From the above figure we can see that all variables of the Risk Factor table are significant for component one except BP_M
+```{r PLSCBoot2,  fig.height=3, fig.width=6, echo=FALSE, message=FALSE, fig.cap="Bootstrap Ratios for Spendings", out.width="75%", fig.align="center", fig.pos="H", warning=FALSE}
+ ggbarplot(FactBoot2, x= "labels", y="v1", 
+          sort.val = "asc", 
+          fill = FactbootColor,
+          color = "white",
+          palette = "jco", 
+          ggtheme = theme_minimal(), 
+          title = "Spendings",
+          ylab = "Boot Ratios", xlab = "Variables",
+          rotate=F) + 
+  geom_hline(yintercept = 2, linetype=2, color="brown1") +  
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+```
+
+For Spendings table, all the variables were significant for component one.

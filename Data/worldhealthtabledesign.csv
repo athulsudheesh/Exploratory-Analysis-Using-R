@@ -1,0 +1,17 @@
+Var,Grp
+Fires,Accidents
+Drownings,Accidents
+Poisonings,Accidents
+Falls,Accidents
+T.Chole_F,RiskFactors
+T.Chole_M,RiskFactors
+BP_F,RiskFactors
+BP_M,RiskFactors
+BMI_F,RiskFactors
+BMI_M,RiskFactors
+GenGovExp,Spending
+TotalExp_GDP,Spending
+PerCapitaExp_XchangeRate,Spending
+PerCapita_PPP,Spending
+IMM_MCV,Vaccines
+IMM_DTP3,Vaccines

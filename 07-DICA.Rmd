@@ -1,0 +1,359 @@
+# Discriminant Correspondence Analysis
+
+Discriminant Correspondence Analysis is an extention of discriminant analysis and correspondence analysis. Like discriminant analysis, the goal of discriminant correspondnce analysis is to categorize observations in predefined groups, and like correspondence analysis, it is used with nominal variables[@DiCA]. 
+
+The main idea behind discriminant correspondence analysis is to represent each group by the sum of its observations and to perform a simple CA on the groups by variables matirx. The original observations are then projected as supplementary elements and each observation is assigned to the closest group.
+
+## Computation 
+
+DICA is obtained by the following singular value decomposition: $$\mathbf{ D_r^{-\frac{1}{2} }(-rc^T)D_c^{-\frac{1}{2}} = P \Delta Q^T}$$ where $\mathbf{ D_c = diag\{c\}}$ and $\mathbf{D_r = diag\{r\}}$, $\mathbf{r}$ and $\mathbf{c}$ are vectors of row totals and column totals.
+
+The row and column factor scores are obtained as $$\mathbf{F= D_r^{-\frac{1}{2} } P \Delta }$$ and $$\mathbf{G = D_c^{-\frac{1}{2}} Q \Delta}$$
+
+For this analysis we use the `World Health` dataset and the heatmap is shown in figure \@ref(fig:BICAHeat)
+```{r include=FALSE}
+# Clean Start
+rm(list = ls()) 
+graphics.off() 
+
+library(TInPosition)
+require(ggplot2)
+
+# Loading Dataset
+WorldHealth <- read.csv("Data/WorldHealth.csv", row.names = 1)
+
+# Cleaning Data 
+names(WorldHealth) <- c("Fires", "Drownings", "Poisonings", "Falls",
+                        "T.Chole_F", "T.Chole_M",
+                        "BP_F", "BP_M",
+                        "BMI_F","BMI_M",
+                        "GenGovExp", "TotalExp_GDP", 
+                        "PerCapitaExp_XchangeRate","PerCapita_PPP",
+                        "IMM_MCV", "IMM_DTP3")
+
+# Creating WorldHealth_Risk sub-table
+WorldHealth_Risk <- WorldHealth[,c(5:10)]
+designMatrix <- read.csv("Data/design_new.csv")
+
+WorldHealth_Spending <- WorldHealth[,c(11:14)]
+
+
+WorldHealth_Immunization <- WorldHealth[,c(15,16)]
+
+# A function for plotting multiple plots 
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r include=FALSE}
+T.Chole_F <- cut(WorldHealth_Risk[,1], breaks =c(0,4.5,5.2,6.2) ) # cut(x, breaks) is 
+# a base function that divides the range of x according to which interval  they fall
+
+# ------------------ T.Chole(M)------------------ 
+T.Chole_M <- cut(WorldHealth_Risk[,2], breaks =c(0,4,5,6.2) )
+
+# -------------------- BP(F)--------------------
+BP_F <- cut(WorldHealth_Risk[,3], breaks =c(100,123,130,150))
+
+# -------------------- BP(M)--------------------
+BP_M <- cut(WorldHealth_Risk[,4], breaks = c(100,127,134,150))
+
+# ------------------- BMI(F)-------------------
+BMI_F <- cut(WorldHealth_Risk[,5], breaks = c(19,25,30,40))
+
+# ------------------- BMI(M)-------------------
+BMI_M <- cut(WorldHealth_Risk[,6], breaks = c(19,25,30,40))
+
+# Putting them all together into a table
+
+WorldHealth_Risk_Categorical <- cbind(T.Chole_F,T.Chole_M, BP_F, BP_M, BMI_F, BMI_M)
+```
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+resDICA <- tepDICA.inference.battery(WorldHealth_Risk_Categorical,
+                                     DESIGN = designMatrix$Region, 
+                                     test.iters = 100,
+                                     critical.value = 2, graphs = F)
+```
+
+```{r BICAHeat, fig.width=6, fig.height=6, out.width="50%", fig.align="center", fig.cap="DICA Heatmap", fig.pos="H", echo=FALSE, message=FALSE, warning=FALSE}
+require(RColorBrewer)
+
+# RColorBrewer helps to select colors from a palatte 
+# Rowv, Colv = NA prevents heatmap function from clustering the variables in the plot 
+heatmap(resDICA$Fixed.Data$TExPosition.Data$X, 
+        Rowv = NA, 
+        Colv = NA, 
+        col= colorRampPalette(brewer.pal(5, "Blues"))(256), 
+        margins = c(6.8,9))
+```
+
+```{r plotScreeDICA, include=FALSE}
+
+# Create a function to plot the scree
+# ev: the eigen values to plot. no default
+# max.ev the max eigen value
+#        needed because ExPosition does not return all ev
+#        but only the requested one. but return all tau
+#        so if max.ev is specified, it is used to recompute
+#        all eigenvalues
+# p.ep: the probabilities associated to the ev
+# alpha: threshold for significance. Default = .05
+# col.ns  = color for ns ev. Default is Green
+# col.sig = color for significant ev. Default is Violet
+PlotScree <- function(ev,p.ev=NULL,max.vp=NULL,
+                      alpha=.05,
+                      col.ns = '#006D2C',col.sig='#54278F',
+                      title = "Explained Variance per Dimension"
+){
+  # percentage of inertia
+  val.tau = (100*ev/sum(ev))
+  Top.y = ceiling(max(val.tau)*.1)*10
+  # if ev is already a percentage convert it back
+  if (!is.null(max.vp)){ev = ev*(max.vp/ev[1])}
+  p <- ggplot(ev, aes(x = c(1:5), y= ev))
+  p + 
+    geom_line() + ylab("Inertia Extracted by the Components") +
+    scale_x_continuous(name='Dimensions', breaks = c(1,2,3,4,5))  +
+    geom_line() + 
+    scale_y_continuous(sec.axis = sec_axis(~./sum(ev)*100,name="Percentage of Explained Variance")) +
+    geom_point(col=ifelse(p.ev<alpha, 'blue', 'indianred3'), size=2) +theme_get()
+   
+} # end of function PlotScree
+
+```
+
+## Eigenvalues/ Variance 
+
+Figure \@ref(fig:DICAScree) shows the Scree plot for DICA and we can see that DICA generated five components with one important component (explaining more than 75%). 
+
+```{r DICAScree, out.width="60%", fig.align="center", fig.cap="Scree Plot for BADA", fig.pos='H', fig.width=7.5, fig.height=4.5, echo=FALSE}
+PlotScree(as.data.frame(resDICA$Fixed.Data$TExPosition.Data$eigs), p.ev = resDICA$Inference.Data$components$p.vals)
+```
+
+## Interpreting the Observations and Groups (Rows)
+
+Interpreting the meaning of the factors is done in two stages: first by looking at the observations/groups and then by looking at the variables. The realtive position of the observations and groups is shown in figure \@ref(fig:DICAFactMapInd) and figure \@ref(fig:DICAFactMap).
+
+As in MCA, the proximity between group points in the DICA maps represent their similariy, and the proximity between variable points represent their association. From figure \@ref(fig:DICAFactMap) we can see that component 1 is contrasting Africa with Europe. To find the variables that account for these differences, we examine the loadings of the variables (figure \@ref(fig:DICALoadings))
+
+```{r DICAFactMap, echo=FALSE, fig.height=5, fig.width=8, out.width="75%", fig.align="center", warning=FALSE, message=FALSE, fig.pos="H", fig.cap="DICA Factor Map of Group Means"}
+FactorScore <- as.data.frame(resDICA$Fixed.Data$TExPosition.Data$fi[,c(1,2)])
+FactorScore$labels <- labels(resDICA$Fixed.Data$TExPosition.Data$fi[,2])
+p <- ggplot()
+
+p + 
+  
+  # Plotting the points 
+  geom_point(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, color= unique(designMatrix$Region))) +
+  
+  # Printing the labels 
+  geom_text_repel(aes(x=FactorScore$V1,
+                      y=FactorScore$V2, 
+                      label = FactorScore$labels))+
+  
+  # Scaling the x and y axis based on the plotting constraints 
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resDICA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resDICA$Inference.Data$components$p.vals[1]), 
+                     limits = c(resDICA$Fixed.Data$Plotting.Data$constraints$minx, resDICA$Fixed.Data$Plotting.Data$constraints$maxx) ) +
+  
+  scale_color_discrete(name= "Regions")+
+  
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resDICA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resDICA$Inference.Data$components$p.vals[2] ), 
+                     limits = c(resDICA$Fixed.Data$Plotting.Data$constraints$miny, resDICA$Fixed.Data$Plotting.Data$constraints$maxy))+
+  
+  # Drawing the x and y axis 
+  geom_line(aes(x=c(0,0), 
+                y=c(resDICA$Fixed.Data$Plotting.Data$constraints$miny, resDICA$Fixed.Data$Plotting.Data$constraints$maxy))) +
+  
+  geom_line(aes(x=c(resDICA$Fixed.Data$Plotting.Data$constraints$minx, resDICA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0))) + 
+  
+  theme(legend.position="none")
+
+```
+
+Figure \@ref(fig:DICAFactMapInd) shows the factor map of the individuals (with convex hulls).
+
+```{r DICAFactMapInd, echo=FALSE, fig.height=5, fig.width=8, out.width="75%", fig.align="center", warning=FALSE, message=FALSE, fig.pos="H", fig.cap="DICA Factor Map of Individuals"}
+require(ggpubr)
+FactorScore <- as.data.frame(resDICA$Fixed.Data$TExPosition.Data$fii[,c(1,2)])
+FactorScore$labels <- labels(resDICA$Fixed.Data$TExPosition.Data$fii[,2])
+p <- ggplot()
+
+p + 
+  # Plotting the points 
+  geom_point(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, 
+                   color = designMatrix$Region)) +
+  
+  # Drawing the confidence ellipse 
+  stat_chull(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, 
+                   color = designMatrix$Region), geom = "polygon", inherit.aes = F,na.rm = T, fill=NA)+
+  
+  # Scaling the axises based on constraints 
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resDICA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resDICA$Inference.Data$components$p.vals[1]),
+                     limits = c(resDICA$Fixed.Data$Plotting.Data$constraints$minx, resDICA$Fixed.Data$Plotting.Data$constraints$maxx) ) +
+  scale_color_discrete(name= "Regions")+
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resDICA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resDICA$Inference.Data$components$p.vals[2] ), 
+                     limits = c(resDICA$Fixed.Data$Plotting.Data$constraints$miny, resDICA$Fixed.Data$Plotting.Data$constraints$maxy))+
+  
+  # Drawing the axis lines 
+  geom_line(aes(x=c(resDICA$Fixed.Data$Plotting.Data$constraints$minx, resDICA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0)))+
+  
+  geom_line(aes(x=c(0,0),
+                y=c(resDICA$Fixed.Data$Plotting.Data$constraints$miny, resDICA$Fixed.Data$Plotting.Data$constraints$maxy)))+
+  
+  # theme() is used for tweaking the final appearance of the plot 
+   theme(legend.position = "bottom")
+```
+
+
+## Confusion Matrix (Fixed Model)
+
+```{r DICAConf, echo=FALSE, fig.cap="DICA Confusion Matrix (Fixed Model)", fig.pos="H", fig.align="center"}
+# ggtexttable() is a function from ggpubr for prining tables as images 
+ggtexttable(as.data.frame(resDICA$Fixed.Data$TExPosition.Data$assign$confusion))
+```
+
+## Inferences 
+
+Figure \@ref(fig:DICAConfGrp) shows the factor map of groups with 95% confidence interval
+
+```{r DICAConfGrp, out.width="75%", fig.align="center", fig.pos="H", warning=FALSE, message=FALSE, fig.cap="DICA Factor Scores (Group) with confidence intervals", echo=FALSE, fig.height=5.8, fig.width=8}
+Fi <- as.data.frame(resDICA$Fixed.Data$TExPosition.Data$fi[,c(1,2)])
+Fi$labels <- labels(resDICA$Fixed.Data$TExPosition.Data$fi[,2])
+FactorScore <- as.data.frame(resDICA$Fixed.Data$TExPosition.Data$fii[,c(1,2)])
+FactorScore$labels <- labels(resDICA$Fixed.Data$TExPosition.Data$fii[,2])
+p <- ggplot()
+
+p + 
+  # Plotting the points 
+  geom_point(aes(x=Fi$V1,
+                   y=Fi$V2, color=unique(designMatrix$Region))) +
+ 
+  # Drawing confidence ellipse  
+  stat_conf_ellipse(aes(x=FactorScore$V1,
+                   y=FactorScore$V2, 
+                   color = designMatrix$Region), 
+               linetype = 6, inherit.aes = F, geom = "path")+
+  
+  # Scaling x and y axis 
+  scale_x_continuous(name = paste0("Component 1 Inertia: ",
+                                            round(resDICA$Fixed.Data$TExPosition.Data$t[1],3), "%", 
+                                   ", p=", resDICA$Inference.Data$components$p.vals[1]),
+                     limits = c(resDICA$Fixed.Data$Plotting.Data$constraints$minx, resDICA$Fixed.Data$Plotting.Data$constraints$maxx) ) +
+  scale_color_discrete(name= "Regions")+
+  scale_y_continuous(name = paste0("Component 2 Inertia: ", 
+                            round(resDICA$Fixed.Data$TExPosition.Data$t[2],3), 
+                            "%", ", p=",resDICA$Inference.Data$components$p.vals[2] ), 
+                     limits = c(resDICA$Fixed.Data$Plotting.Data$constraints$miny, resDICA$Fixed.Data$Plotting.Data$constraints$maxy))+
+  
+  geom_line(aes(x=c(resDICA$Fixed.Data$Plotting.Data$constraints$minx, resDICA$Fixed.Data$Plotting.Data$constraints$maxx), 
+                y=c(0,0)))+
+ 
+  # Drawing the axis lines 
+   geom_line(aes(x=c(0,0),
+                y=c(resDICA$Fixed.Data$Plotting.Data$constraints$miny, resDICA$Fixed.Data$Plotting.Data$constraints$maxy)))+
+  
+  # theme() is used for tweaking the final appearance of the plot 
+   theme(legend.position = "bottom")
+```
+
+### Bootstrap Ratios 
+
+```{r echo=FALSE, fig.width=6, fig.height=3, warning=FALSE, message=FALSE, fig.align="center", fig.pos="H", fig.cap="DICA Bootstrap Ratios"}
+
+
+bootRatios <- as.data.frame(resDICA$Inference.Data$boot.data$fj.boot.data$tests$boot.ratios)
+bootRatios$labels <- row.names(resDICA$Fixed.Data$TExPosition.Data$fj)
+
+bootColors1 <- c("dodgerblue3","dodgerblue3",
+                "gray","gray",
+                "dodgerblue3", "dodgerblue3")
+
+# Barplot for component 1
+B1<- ggbarplot(bootRatios, 
+          x= "labels", y="V1", 
+          sort.val = "asc", 
+          palette = "jco", 
+          fill = bootColors1, color = "white", 
+          ggtheme = theme_minimal(), 
+          title = "Component 1", 
+          ylab = "Boot Ratios", xlab = "Variables", rotate=T)+ 
+  
+  geom_hline(yintercept = 2, linetype=2, color="brown1") +  
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+
+bootColors2 <- c("dodgerblue3","dodgerblue3",
+                "gray","gray",
+                "dodgerblue3", "dodgerblue3")
+
+# Barplot for component 2
+B2<- ggbarplot(bootRatios, x= "labels", y="V2",
+          sort.val = "asc", palette = "jco", 
+          fill = bootColors2, color = "white", 
+          ggtheme = theme_minimal(), 
+          title = "Component 2", 
+          ylab = "Boot Ratios", xlab = "", 
+          rotate=T)+
+  geom_hline(yintercept = 2, linetype=2, color="brown1") + 
+  geom_hline(yintercept = -2, linetype=2, color="brown1")
+
+multiplot(B1,B2, cols = 2)
+```
+
+### Confusion Matrix 
+
+```{r DICAConfRand, echo=FALSE, fig.cap="Confusion Matrix (Random Model)", fig.pos="H", fig.align="center", fig.height=5, fig.width=12}
+ggtexttable(as.data.frame(resDICA$Inference.Data$loo.data$loo.confuse))
+```
+
+
+
+
+`r if (knitr:::is_html_output()) '# References {-}'`
